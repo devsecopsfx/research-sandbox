@@ -57,13 +57,20 @@ def main():
               '--memory', '2g', '--cpus', '2', '--pids-limit', '256', '--security-opt', 'no-new-privileges',
               # Only the root tracer receives this capability; strace -u drops the
               # subject's uid and capabilities. no-new-privileges prevents regain.
-              '--cap-add', 'SYS_PTRACE', '--ulimit', f'fsize={TRACE_BYTES}:{TRACE_BYTES}',
+              # No container-wide fsize limit: it also capped apt's package lists (bootstrap exit 100);
+              # each traced phase sets its own limit below.
+              '--cap-add', 'SYS_PTRACE',
               '--mount', f'type=bind,src={source},dst=/source,readonly',
               '--mount', f'type=bind,src={trace},dst=/trace', image, 'sleep', 'infinity'])
-        call(['docker', 'exec', container, 'env', '-i', 'PATH=' + clean['PATH'], 'sh', '-c',
-              'apt-get update -qq && apt-get install -y -qq strace && mkdir /work && '
-              'cp -a /source/. /work/ && rm -rf /work/.git && chown -R 65534:65534 /work && '
-              'chown root:root /trace && chmod 0755 /trace'])
+        try:
+            call(['docker', 'exec', container, 'env', '-i', 'PATH=' + clean['PATH'], 'sh', '-c',
+                  'apt-get update -qq && apt-get install -y -qq strace && mkdir /work && '
+                  'cp -a /source/. /work/ && rm -rf /work/.git && chown -R 65534:65534 /work && '
+                  'chown root:root /trace && chmod 0755 /trace'], capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            # Bootstrap output comes from public package mirrors before any subject code runs.
+            metadata['bootstrap_stderr_tail'] = (exc.stderr or '')[-800:]
+            raise
         deadline = time.monotonic() + minutes * 60
         for phase in ('setup', 'run'):
             start = time.monotonic()
@@ -72,7 +79,7 @@ def main():
                 # Command is an argv value, never inserted into a host shell.
                 result = subprocess.run(['docker', 'exec', '--user', '0:0', '--workdir', '/work',
                     container, 'env', '-i', 'PATH=' + clean['PATH'] + ':/usr/local/go/bin', 'HOME=/tmp',
-                    'sh', '-c', 'umask 022; exec strace -u nobody -f -yy -s 300 '
+                    'sh', '-c', f'umask 022; ulimit -f {TRACE_BYTES // 512}; exec strace -u nobody -f -yy -s 300 '
                     '-e trace=network,file,process,write,pwrite64,writev,ftruncate '
                     '-o "/trace/$1.log" sh -c \'exec sh -c "$1" >/dev/null 2>&1\' '
                     'subject "$2" 2>"/trace/$1-stderr.log"', 'trace-phase', phase, command],
