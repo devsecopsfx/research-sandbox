@@ -39,7 +39,7 @@ jobs:
         run: |
           mkdir -p evidence
           # The shell writes its own PID, then exec preserves it (not sudo's PID).
-          sudo sh -c 'echo $$ > evidence/capture.pid; ulimit -f 20480; exec tcpdump -i any -nn -U -C 10 -W 1 -w evidence/egress.pcap >evidence/capture.log 2>&1' &
+          sudo sh -c 'echo $$ > evidence/capture.pid; ulimit -f 20480; exec tcpdump -Z root -i any -nn -U -C 10 -W 1 -w evidence/egress.pcap >evidence/capture.log 2>&1' &
           sudo sh -c 'echo $$ > evidence/dns.pid; ulimit -f 2048; exec tcpdump -i any -nn -l port 53 >evidence/dns.log 2>evidence/dns-capture.log' &
           sleep 1
           sudo kill -0 "$(cat evidence/capture.pid)" "$(cat evidence/dns.pid)"
