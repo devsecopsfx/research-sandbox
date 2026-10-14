@@ -50,7 +50,10 @@ def main():
         call(['sudo', 'chmod', '0755', str(trace)])
         call(['docker', 'pull', image])
         metadata['image_id'] = call(['docker', 'image', 'inspect', '--format', '{{.Id}}', image], capture_output=True, text=True).stdout.strip()
+        # Public resolvers: the hosted VM's resolver (168.63.129.16) is blocked for the subject below, which made the
+        # bootstrap's apt-get hang until its 180-second deadline.
         call(['docker', 'run', '--rm', '-d', '--name', container, '--env-file', '/dev/null',
+              '--dns', '1.1.1.1', '--dns', '8.8.8.8',
               '--memory', '2g', '--cpus', '2', '--pids-limit', '256', '--security-opt', 'no-new-privileges',
               # Only the root tracer receives this capability; strace -u drops the
               # subject's uid and capabilities. no-new-privileges prevents regain.
