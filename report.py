@@ -50,6 +50,14 @@ class CappedRows(list):
             self.omitted += 1
 
 
+BENIGN_DEVICES = ('/dev/null', '/dev/zero', '/dev/full', '/dev/tty', '/dev/stdout', '/dev/stderr', '/dev/stdin')
+
+
+def benign_device(path):
+    # Standard sinks and terminals; counted, not listed. Any other /dev path stays a write candidate.
+    return path in BENIGN_DEVICES or path.startswith(('/dev/pts/', '/dev/fd/'))
+
+
 def summarize(packets, dns, trace, metadata=None):
     hosts, overflow = set(), Counter()
     for line in lines(dns):
@@ -88,7 +96,9 @@ def summarize(packets, dns, trace, metadata=None):
         fdwrite = re.search(r'\b(?:write|pwrite64|writev|ftruncate)\(\d+<([^>]+)>', line)
         if fdwrite:
             path = posixpath.normpath(fdwrite[1])
-            if path.startswith('/') and not any(path == b or path.startswith(b + '/') for b in ('/work', '/tmp')):
+            if benign_device(path):
+                overflow['benign_device_writes'] += 1
+            elif path.startswith('/') and not any(path == b or path.startswith(b + '/') for b in ('/work', '/tmp')):
                 writes.append({**evidence, 'path': path, 'failed': bool(re.search(r'= -1\b', line)), 'kind': 'fd write attempt'})
             continue
         if not re.search(r"\b(open|openat|openat2|creat|mkdir|mkdirat|rename|renameat|renameat2|unlink|unlinkat|symlink|link|truncate|chmod|chown)\(", line):
@@ -112,7 +122,9 @@ def summarize(packets, dns, trace, metadata=None):
                     uncertain.append({**evidence, "path": path, "reason": "relative path; inspect cwd/dirfd", "failed": failed})
                     continue
             path = posixpath.normpath(path)
-            if not any(path == base or path.startswith(base + '/') for base in ('/work', '/tmp')):
+            if benign_device(path):
+                overflow['benign_device_writes'] += 1
+            elif not any(path == base or path.startswith(base + '/') for base in ('/work', '/tmp')):
                 writes.append({**evidence, "path": path, "failed": failed,
                                "kind": "write-capable open or mutation attempt"})
     overflow.update(outside_write_candidates=writes.omitted, unresolved_paths=uncertain.omitted,
