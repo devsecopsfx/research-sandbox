@@ -50,12 +50,13 @@ class CappedRows(list):
             self.omitted += 1
 
 
-BENIGN_DEVICES = ('/dev/null', '/dev/zero', '/dev/full', '/dev/tty', '/dev/stdout', '/dev/stderr', '/dev/stdin')
+# /dev/fd/N and the std streams re-open whatever file they point to, so writes through them stay listed.
+BENIGN_DEVICES = ('/dev/null', '/dev/zero', '/dev/full', '/dev/tty')
 
 
 def benign_device(path):
     # Standard sinks and terminals; counted, not listed. Any other /dev path stays a write candidate.
-    return path in BENIGN_DEVICES or path.startswith(('/dev/pts/', '/dev/fd/'))
+    return path in BENIGN_DEVICES or path.startswith('/dev/pts/')
 
 
 def summarize(packets, dns, trace, metadata=None):
